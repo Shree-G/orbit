@@ -37,21 +37,21 @@ Based on the Master Technical PRD (Section 8).
 - [x] Verify `/setup` command successfully links Google Account
 
 ## Day 4: Calendar Integration
-- [ ] Implement `utils/encryption.py` (if not done in Day 3)
-- [ ] Implement `integrations/google_calendar.py` (Client Class)
-- [ ] Implement Token Refresh logic (Handle 401 errors)
-- [ ] Implement `get_events` tool
-- [ ] Implement `create_event` tool
-- [ ] Implement `search_events` tool
-- [ ] Implement `update_event` tool
-- [ ] Implement `delete_event` tool
+- [x] Implement `utils/encryption.py` (if not done in Day 3)
+- [x] Implement `integrations/google_calendar.py` (Client Class)
+- [x] Implement Token Refresh logic (Handle 401 errors)
+- [x] Implement `get_events` tool
+- [x] Implement `create_event` tool
+- [x] Implement `search_events` tool
+- [x] Implement `update_event` tool
+- [x] Implement `delete_event` tool
 
 ## Day 5: Profile & Versioning
-- [ ] Implement `database/operations.py`
-- [ ] Implement `update_user_document` specific logic
-- [ ] Implement Optimistic Locking (check `version` column)
-- [ ] Implement `profile_history` insertion
-- [ ] Test concurrency handling (Parallel update test)
+- [x] Implement `database/operations.py`
+- [x] Implement `update_user_document` specific logic
+- [x] Implement Optimistic Locking (check `version` column)
+- [x] Implement `profile_history` insertion
+- [x] Test concurrency handling (Parallel update test)
 
 ## Day 6: Agent Construction
 - [ ] Setup LangGraph `MessageGraph`

@@ -6,6 +6,7 @@ from config.settings import TELEGRAM_BOT_TOKEN
 from database.supabase_client import supabase
 from onboarding.quiz_manager import QuizManager
 from auth.oauth_flow import get_authorization_url
+from agent.orbit_agent import OrbitAgent
 
 # Logging setup
 logging.basicConfig(
@@ -57,12 +58,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question = QuizManager.start_quiz(telegram_id)
         await update.message.reply_text(question)
     else:
-        await update.message.reply_text("Welcome back! You have already verified your profile. Run /setup to connect your Google Calendar.")
+        await update.message.reply_text("Welcome back! You have already verified your profile. Run /setup to connect your Google Calendar, or just ask me anything.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Main message handler.
     Routes to QuizManager if quiz is incomplete.
+    Routes to OrbitAgent if quiz is complete.
     """
     user = update.effective_user
     if not user:
@@ -90,8 +92,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response_text = await asyncio.to_thread(QuizManager.handle_response, telegram_id, text)
         await update.message.reply_text(response_text)
     else:
-        # Agent Logic (Placeholder)
-        await update.message.reply_text("I heard you, but my brain (Agent) isn't connected yet! Check back on Day 6.")
+        # Route to OrbitAgent
+        try:
+            # Initialize agent for this user
+            # Note: Initializing agent every time might be inefficient due to DB connection pool creation?
+            # 'pool' in orbit_agent.py is global module level, so it's fine.
+            # 'OrbitAgent' init just binds tools and compiles graph. It's fast enough.
+            
+            agent = OrbitAgent(telegram_id)
+            
+            # Show "typing..." action
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+            
+            # Run Agent
+            response_text = await agent.run(text)
+            
+            await update.message.reply_text(response_text)
+            
+        except Exception as e:
+            import traceback
+            logger.error(f"Agent Error for {telegram_id}: {repr(e)}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text(f"I encountered an error processing your request: {e}")
 
 async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """

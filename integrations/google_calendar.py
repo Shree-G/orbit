@@ -61,14 +61,14 @@ class GoogleCalendarClient:
 
         # Refresh if needed (it will be needed since we passed token=None)
         if not creds.valid:
-            if creds.expired and creds.refresh_token:
+            if creds.refresh_token:
                 try:
                     creds.refresh(Request())
                 except Exception as e:
                     logger.error(f"Token Refresh Failed: {e}")
-                    raise ValueError("Token expired and refresh failed. Please run /setup again.")
+                    raise ValueError(f"Token refresh failed: {e}. Please run /setup again.")
             else:
-                 raise ValueError("Invalid credentials. Please run /setup.")
+                 raise ValueError("Invalid credentials (no refresh token). Please run /setup.")
 
         return build('calendar', 'v3', credentials=creds)
 
@@ -104,10 +104,22 @@ class GoogleCalendarClient:
         
         return events_result.get('items', [])
 
-    def create_event(self, summary: str, start_time: str, duration_mins: int = 60, description: str = "") -> Dict[str, Any]:
+    def get_primary_calendar_timezone(self) -> str:
+        """
+        Fetches the timezone of the primary calendar.
+        """
+        try:
+            calendar = self.service.calendars().get(calendarId='primary').execute()
+            return calendar.get('timeZone', 'UTC')
+        except Exception as e:
+            logger.error(f"Error fetching timezone: {e}")
+            return 'UTC'
+
+    def create_event(self, summary: str, start_time: str, duration_mins: int = 60, description: str = "", time_zone: str = "UTC") -> Dict[str, Any]:
         """
         Creates a new event.
         start_time: ISO string (e.g. 2023-10-27T10:00:00)
+        time_zone: IANA timezone string (e.g. 'America/Los_Angeles')
         """
         try:
             start_dt = parser.parse(start_time)
@@ -118,11 +130,11 @@ class GoogleCalendarClient:
                 'description': description,
                 'start': {
                     'dateTime': start_dt.isoformat(),
-                    'timeZone': 'UTC', # defaulting to UTC for now, should assert from user profile later
+                    'timeZone': time_zone, 
                 },
                 'end': {
                     'dateTime': end_dt.isoformat(),
-                    'timeZone': 'UTC',
+                    'timeZone': time_zone,
                 },
             }
             

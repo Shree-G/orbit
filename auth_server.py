@@ -89,6 +89,22 @@ async def oauth_callback(request: Request):
         # Execute Update
         supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()
         
+        # 5. Fetch & Save Timezone (Onboarding)
+        try:
+            from googleapiclient.discovery import build
+            from database.operations import update_user_timezone
+            
+            service = build('calendar', 'v3', credentials=credentials)
+            calendar = service.calendars().get(calendarId='primary').execute()
+            timezone = calendar.get('timeZone', 'UTC')
+            
+            update_user_timezone(telegram_id, timezone)
+            logger.info(f"Onboarding: Set timezone for {telegram_id} to {timezone}")
+            
+        except Exception as e:
+            logger.error(f"Onboarding Timezone Sync Failed: {e}")
+            # Don't fail the whole auth flow for this
+    
     except Exception as e:
         logger.error(f"Database update failed: {e}")
         return HTMLResponse(content="<h1>Error</h1><p>Database error.</p>", status_code=500)
