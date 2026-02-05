@@ -43,37 +43,10 @@ class SupabaseCheckpointer(BaseCheckpointSaver):
             row = result.data[0]
             logger.info(f"Checkpointer: Loaded checkpoint {row['checkpoint_id']} for {thread_id}")
             
-            # The JSON decoder will automatically convert back to dict/list/etc 
-            # if we deserialized correctly in aput.
-            # But wait, we serialized to string in aput, so we likely receive a string or a dict?
-            # Supabase Python client auto-parses JSON columns to Dict.
-            
-            checkpoint = self.serde.loads(json.dumps(row["checkpoint"])) # Double decode safety?
-            # Actually, if 'checkpoint' in DB is JSONB, row['checkpoint'] is ALREADY a dict.
-            # self.serde.loads expects bytes or str.
-            # If row['checkpoint'] is dict, we might need to handle that.
-            
-            # Let's inspect type
-            checkpoint_raw = row["checkpoint"]
-            if isinstance(checkpoint_raw, dict):
-                 # Serde expects loaded dictionary potentially for internal parsing?
-                 # LangGraph serializers usually expect to 'loads' from bytes.
-                 # JsonPlusSerializer.loads takes bytes/str.
-                 # So we might need to dump it back to str to pass to serde.loads?
-                 # OR, we might bypass serde if it's already a dict.
-                 # Implemetation detail: JsonPlusSerializer restores objects like 'HumanMessage'.
-                 # A raw dict from DB is just {"type": "human", "content": ...}
-                 # We NEED serde to restore classes.
-                 checkpoint = self.serde.loads(json.dumps(checkpoint_raw).encode("utf-8"))
-            else:
-                 checkpoint = self.serde.loads(checkpoint_raw)
-
-            metadata_raw = row["metadata"]
-            if isinstance(metadata_raw, dict):
-                metadata = self.serde.loads(json.dumps(metadata_raw).encode("utf-8"))
-            else:
-                metadata = self.serde.loads(metadata_raw)
-
+            # Supabase returns Dict for JSONB columns. 
+            # LangGraph serializer expects bytes (JSON string encoded).
+            checkpoint = self.serde.loads(json.dumps(row["checkpoint"]).encode("utf-8"))
+            metadata = self.serde.loads(json.dumps(row["metadata"]).encode("utf-8"))
             parent_id = row.get("parent_checkpoint_id")
 
             # TODO: Fetch writes if needed for advanced usage (Time Travel)
@@ -176,7 +149,6 @@ class SupabaseCheckpointer(BaseCheckpointSaver):
             
             # Use json.loads to ensure we are sending a Dictionary to Supabase, 
             # which will then be serialized to JSONB properly.
-            import json
             data = {
                 "thread_id": thread_id,
                 "checkpoint_ns": checkpoint_ns,
