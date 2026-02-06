@@ -71,7 +71,43 @@ class OrbitAgent:
             """Deletes an event."""
             return self.calendar_client.delete_event(event_id)
 
-        return [get_events, create_event, search_events, update_event, delete_event]
+        @tool
+        def update_profile(fact: str):
+            """
+            Saves a permanent fact/preference about the user (e.g. 'Likes green apples', 'Vegetarian').
+            Use this ONLY when the user explicitly asks to remember something or states a clear preference.
+            """
+            from database.operations import get_user_profile, update_user_document
+            import asyncio
+            import time
+
+            # Retry Loop for Concurrency
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # 1. Fetch current (to get version)
+                    current_doc, version = get_user_profile(self.telegram_id)
+                    
+                    # 2. Append new fact
+                    new_doc = f"{current_doc}\n- {fact}"
+                    
+                    # 3. Update
+                    success = update_user_document(self.telegram_id, new_doc, version, change_reason="Agent Tool Update")
+                    
+                    if success:
+                        return "Successfully updated user profile."
+                    
+                    # If failed (Optimistic Lock), wait and retry
+                    logger.warning(f"Update profile failed (conflict), retrying {attempt+1}/{max_retries}...")
+                    time.sleep(0.5) # Short backoff
+                    
+                except Exception as e:
+                    logger.error(f"Error updating profile: {e}")
+                    return f"Error: {str(e)}"
+
+            return "Failed to update profile after multiple attempts due to high traffic. Please try again later."
+
+        return [get_events, create_event, search_events, update_event, delete_event, update_profile]
 
     def _get_system_message(self):
         """
@@ -135,27 +171,73 @@ class OrbitAgent:
         response = self.model.invoke(final_messages)
         return {"messages": [response]}
 
-    def _summarize_conversation(self, state: MessagesState):
+    async def _summarize_conversation(self, state: MessagesState):
         """
-        Compresses memory if too long.
+        Compresses memory by extracting insights and removing old messages.
         """
         messages = state["messages"]
-        if len(messages) > 20:
-             # Placeholder for sophisticated compression.
-             # Ideally: Summarize oldest 10 messages -> Update Profile -> Remove them.
-             # For now: Just trim logic or pass?
-             # User requested: "The summarization should call update_user_document with reason='Memory Compression'"
-             
-             # Let's perform a simple "summary" generation using the model (headless)
-             # Then update profile.
-             # Then delete messages?
-             
-             # This is complex to implement robustly in one step. 
-             # I will skip the actual *logic* implementation of summarization to keep this file clean 
-             # but add the node placeholder as requested.
-             pass
-             
-        return {"messages": []} # No-op for now
+        
+        # 1. Identify messages to summarize
+        # We prune a larger chunk to avoid frequent summarization loops.
+        # Pruning 30 messages leaves us with ~45, giving a good buffer.
+        PRUNE_COUNT = 30
+        early_messages = messages[:PRUNE_COUNT]
+        recent_messages = messages[PRUNE_COUNT:]
+        
+        # 2. Convert messages to string for LLM
+        history_text = "\n".join([f"{m.type}: {m.content}" for m in early_messages])
+        
+        # 3. Get Current Profile
+        from database.operations import get_user_profile, update_user_document
+        current_profile, version = get_user_profile(self.telegram_id)
+        
+        # 4. Invoke LLM for Consolidation
+        from agent.prompts import MEMORY_CONSOLIDATION_PROMPT
+        
+        # We need a fresh model instance for this (or use self.model without tools)
+        # Using self.model might try to call tools, which we don't want here.
+        # So we create a raw ChatOpenAI instance.
+        consolidation_model = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
+        
+        prompt = MEMORY_CONSOLIDATION_PROMPT.format(
+            user_profile=current_profile,
+            chat_history=history_text
+        )
+        
+        response = await consolidation_model.ainvoke([HumanMessage(content=prompt)])
+        new_profile_content = response.content.strip()
+        
+        # 5. Update Profile if Needed
+        if "NO_UPDATE" not in new_profile_content:
+            # We Replace the entire profile with the consolidated version
+            update_user_document(self.telegram_id, new_profile_content, version, change_reason="Memory Consolidation (Rewrite)")
+            logger.info(f"Consolidated memory for {self.telegram_id}")
+            
+        # 6. Delete summarized messages
+        # In LangGraph, returning a RemoveMessage with an ID deletes it.
+        from langchain_core.messages import RemoveMessage
+        delete_ops = [RemoveMessage(id=m.id) for m in early_messages if m.id]
+        
+        # Return side effects: Checkpoint will capture deletions
+        return {"messages": delete_ops}
+
+    def _check_memory_pressure(self, state: MessagesState):
+        """
+        Conditional edge to determine if summarization is needed.
+        """
+        messages = state["messages"]
+        logger.info(f"Checking memory pressure: {len(messages)} messages")
+        if len(messages) > 75:
+             logger.info("Memory pressure high. Triggering summarization.")
+             return "summarize"
+        return END
+
+    def _check_memory_pressure_node(self, state: MessagesState):
+        """
+        Passthrough node to allow conditional edge routing.
+        Requires returning a valid state update (empty list of messages).
+        """
+        return {"messages": []}
 
     def _build_graph(self):
         workflow = StateGraph(MessagesState)
@@ -163,16 +245,36 @@ class OrbitAgent:
         # Nodes
         workflow.add_node("agent", self._call_model)
         workflow.add_node("tools", ToolNode(self.tools))
+        workflow.add_node("summarize", self._summarize_conversation)
+        workflow.add_node("check_memory", self._check_memory_pressure_node)
         
         # Edges
         workflow.set_entry_point("agent")
         
+        # Agent -> Tools OR Summarize OR End
         workflow.add_conditional_edges(
             "agent",
             self._should_continue,
+            {
+                "tools": "tools",
+                END: "check_memory" # Instead of END, we go to memory check
+            }
         )
         
         workflow.add_edge("tools", "agent")
+        
+        # Memory Check -> Summarize OR End
+        workflow.add_conditional_edges(
+            "check_memory",
+            self._check_memory_pressure,
+            {
+                "summarize": "summarize",
+                END: END
+            }
+        )
+        
+        # Summarize -> End
+        workflow.add_edge("summarize", END)
 
         # Checkpointer using Supabase (Persistent)
         checkpointer = SupabaseCheckpointer()
