@@ -12,13 +12,7 @@ def get_user_profile(telegram_id: int) -> Tuple[dict, int]:
     try:
         response = supabase.table("user_profiles").select("user_document, version").eq("telegram_id", telegram_id).execute()
         if not response.data:
-            # If no profile exists, return default/empty and version 0 or 1?
-            # Creating one might be better if it doesn't exist, but let's assume existence for now 
-            # or handle it upstream.
-            # PRD says default is 'New user...'
-            # Let's return None to indicate missing/needs init, or defaults if that's safer.
-            return ({"summary": "New user. No preferences learned yet."}, 0)
-            
+            return ({"summary": "No user found. Might be new user. No preferences learned yet."}, 0)
         data = response.data[0]
         # Strict string return as requested
         doc = data.get("user_document", "") or "New user. No preferences learned yet."
@@ -27,19 +21,46 @@ def get_user_profile(telegram_id: int) -> Tuple[dict, int]:
         logger.error(f"Error fetching profile for {telegram_id}: {e}")
         raise e
 
+### DEPRECATED METHOD, RETURNED UTC AS A FALLBACK WHEN IT SHOULD NOT
+# def get_user_timezone(telegram_id: int) -> str:
+#     """
+#     Fetches the user's timezone from the users table.
+#     Returns: timezone string (e.g. 'UTC', 'America/Los_Angeles')
+#     """
+#     try:
+#         response = supabase.table("users").select("timezone").eq("telegram_id", telegram_id).execute()
+#         if not response.data:
+#             logger.log(f"No timezone for user {telegram_id}, defaulting to UTC")
+#             return "UTC"
+#         return response.data[0].get("timezone", "UTC")
+#     except Exception as e:
+#         logger.error(f"Error fetching timezone for {telegram_id}: {e}")
+#         return "UTC"
+
 def get_user_timezone(telegram_id: int) -> str:
     """
-    Fetches the user's timezone from the users table.
-    Returns: timezone string (e.g. 'UTC', 'America/Los_Angeles')
+    Fetches the user's timezone. 
+    Raises LookupError if user not found.
     """
     try:
-        response = supabase.table("users").select("timezone").eq("telegram_id", telegram_id).execute()
+        # Note: .maybe_single() is a great Supabase trick for getting 1 or 0 rows
+        response = supabase.table("users").select("timezone").eq("telegram_id", telegram_id).maybe_single().execute()
+        
+        # If no row exists at all
         if not response.data:
-            return "UTC"
-        return response.data[0].get("timezone", "UTC")
-    except Exception as e:
-        logger.error(f"Error fetching timezone for {telegram_id}: {e}")
-        return "UTC"
+            raise LookupError(f"User {telegram_id} does not exist in database.")
+
+        timezone = response.data.get("timezone")
+
+        # Explicitly check if the column value is None (NULL in DB)
+        if timezone is None:
+            raise ValueError(f"Timezone is not set (NULL) for user {telegram_id}")
+            
+        return timezone
+
+    except Exception as e:  
+        logger.error(f"Database error fetching timezone for {telegram_id}: {e}")
+        raise
 
 def update_user_timezone(telegram_id: int, timezone: str) -> bool:
     """
@@ -51,11 +72,8 @@ def update_user_timezone(telegram_id: int, timezone: str) -> bool:
     except Exception as e:
         logger.error(f"Error updating timezone for {telegram_id}: {e}")
         return False
-    except Exception as e:
-        logger.error(f"Error fetching profile for {telegram_id}: {e}")
-        raise e
 
-def update_user_document(telegram_id: int, new_document: str, expected_version: int, change_reason: str) -> bool:
+def update_user_document(telegram_id: int, new_document: str, expected_version: int, change_reason: str, old_document: str = None) -> bool:
     """
     Optimistically updates the user profile.
     Checks if current version matches expected_version.
@@ -63,7 +81,7 @@ def update_user_document(telegram_id: int, new_document: str, expected_version: 
     If mismatch: Returns False (caller should retry).
     """
     try:
-        # 1. Check Version & Update (Atomic-ish)
+        # 1. Check Version & Update
         next_version = expected_version + 1
         
         response = supabase.table("user_profiles").update({
@@ -81,7 +99,7 @@ def update_user_document(telegram_id: int, new_document: str, expected_version: 
         try:
             supabase.table("profile_history").insert({
                 "telegram_id": telegram_id,
-                "previous_document": None,
+                "previous_document": old_document,
                 "new_document": new_document,
                 "change_reason": change_reason
             }).execute()

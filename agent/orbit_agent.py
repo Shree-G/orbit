@@ -92,7 +92,7 @@ class OrbitAgent:
                     new_doc = f"{current_doc}\n- {fact}"
                     
                     # 3. Update
-                    success = update_user_document(self.telegram_id, new_doc, version, change_reason="Agent Tool Update")
+                    success = update_user_document(self.telegram_id, new_doc, version, change_reason="Agent Tool Update", old_document=current_doc)
                     
                     if success:
                         return "Successfully updated user profile."
@@ -118,8 +118,12 @@ class OrbitAgent:
         
         doc, version = get_user_profile(self.telegram_id)
         
-        # 1. Determine Timezone
-        user_timezone = get_user_timezone(self.telegram_id)
+        # 1. Determine Timezone, default to UTC if not found, but log.
+        try:
+            user_timezone = get_user_timezone(self.telegram_id)
+        except (LookupError, ValueError) as e:
+            logger.warning(f"Timezone not found for user {self.telegram_id}: {e}. Defaulting to UTC.")
+            user_timezone = "UTC"
         
         # 2. Format Current Time in User's Timezone
         try:
@@ -210,7 +214,7 @@ class OrbitAgent:
         # 5. Update Profile if Needed
         if "NO_UPDATE" not in new_profile_content:
             # We Replace the entire profile with the consolidated version
-            update_user_document(self.telegram_id, new_profile_content, version, change_reason="Memory Consolidation (Rewrite)")
+            update_user_document(self.telegram_id, new_profile_content, version, change_reason="Memory Consolidation (Rewrite)", old_document=current_profile)
             logger.info(f"Consolidated memory for {self.telegram_id}")
             
         # 6. Delete summarized messages
