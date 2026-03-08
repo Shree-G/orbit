@@ -13,12 +13,9 @@ logger = logging.getLogger(__name__)
 # Predefined Questions
 QUESTIONS = [
     "Hi! I'm Orbit, your executive function agent. What should I call you?",
-    "Nice to meet you. To help you best, I need to understand your primary goal. Is it productivity, work-life balance, health, or something else?",
-    "Got it. What does your typical work schedule look like? (e.g., 9-5 M-F, irregular freelancing, etc.)",
-    "Understood. Are there specific habits you want to track or build? (e.g., Gym, Reading, Meditation)",
-    "Noted. How do you prefer I communicate? (e.g., Direct and concise, or warm and encouraging?)",
-    "Okay. typically, when do you wake up and go to sleep?",
-    "Finally, is there anything else specific you want me to help manage or remember for you?"
+    "Got it. Are there any strict non-negotiable blocks in your day that may not be on your calendar (e.g., 9-5 work Monday to Friday, 12-1 PM lunch, dropping off kids from 8:30-9 AM)? I won't plan tasks during these periods.",
+    "When you don't want to do tasks, what reasoning should I give you to keep going? This will help me send you personalized notifications to keep you as accountable as possible.",
+    "Lastly, is there anything else I should know before I help manage your time?",
 ]
 
 class QuizManager:
@@ -90,47 +87,52 @@ class QuizManager:
         # Key the response by the question text or index. Let's use Index for stability.
         responses[str(current_q_index)] = user_text
 
-        # Generate Acknowledgment using LLM
-        # We only generate acknowledgment, NOT the next question text (which is static), 
-        # EXCEPT for the transitional phrase.
-        
-        system_prompt = "You are a helpful, empathetic executive assistant. Acknowledge the user's answer briefly (1 sentence) and bridge to the next topic."
-        user_prompt = f"Question: {QUESTIONS[current_q_index]}\nAnswer: {user_text}\nNext Question: {QUESTIONS[current_q_index + 1] if current_q_index + 1 < len(QUESTIONS) else 'End of Quiz'}"
-        
-        try:
-            completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            )
-            acknowledgment = completion.choices[0].message.content
-        except Exception as e:
-            logger.error(f"LLM Error: {e}")
-            acknowledgment = "Got it."
-
         # Advance State
         next_q_index = current_q_index + 1
         QuizManager.create_or_update_state(telegram_id, next_q_index, responses)
 
         if next_q_index < len(QUESTIONS):
-            return f"{acknowledgment}\n\n{QUESTIONS[next_q_index]}"
+            return QUESTIONS[next_q_index]
         else:
             # End of Quiz - Trigger Completion logic
             QuizManager.complete_quiz(telegram_id, responses)
-            return f"{acknowledgment}\n\nThanks! I've set up your profile. You can now use /help to see what I can do."
+            return "Thanks! I've set up your profile. You can now use /help to see what I can do."
 
     @staticmethod
     def complete_quiz(telegram_id: int, responses: Dict[str, Any]):
         """Synthesizes the profile and saves it to user_profiles."""
+        # Pair questions and answers
+        qa_pairs = []
+        for q_idx_str, user_ans in responses.items():
+            if q_idx_str.isdigit():
+                q_idx = int(q_idx_str)
+                if q_idx < len(QUESTIONS):
+                    qa_pairs.append(f"Q: {QUESTIONS[q_idx]}\nA: {user_ans}")
+        
+        qa_text = "\n\n".join(qa_pairs)
+
         # 1. Synthesize Profile
         prompt = f"""
-        Analyze these quiz responses and create a comprehensive User Profile Document.
-        The document should be written in third-person technical prose (e.g., "User is a night owl... Prone to procrastination...").
+        Analyze these quiz responses and synthesize a "User Persona" document for an executive function agent.
         
-        Responses:
-        {json.dumps(responses, indent=2)}
+        FORMAT INSTRUCTIONS:
+        Use the following Markdown structure. Be concise. Use bullet points under each header. In the AGENT STRATEGY section, translate user preferences into actionable 'rules of engagement' for the AI assistant.
+        
+        ## IDENTITY
+        - [Preferred Name]
+        
+        ## NON-NEGOTIABLE BLOCKS
+        - [List specific times/activities mentioned]
+        
+        ## PSYCHOLOGICAL LEVERS
+        - [Reasoning/Motivation that works for them]
+        
+        ## AGENT STRATEGY
+        - [Inferences about their style based on the 'anything else' response]
+        - [Other strategies for this assistant to help the user the most]
+        
+        RESPONSES:
+        {qa_text}
         """
         
         try:
