@@ -72,7 +72,7 @@ class GoogleCalendarClient:
 
         return build('calendar', 'v3', credentials=creds)
 
-    def get_events(self, time_min: Optional[str] = None, time_max: Optional[str] = None, max_results: int = 10) -> List[Dict[str, Any]]:
+    def get_events(self, time_min: Optional[str] = None, time_max: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Lists events within a time range. 
         Strings should be ISO format or natural language parseable if we add that layer later.
@@ -80,48 +80,45 @@ class GoogleCalendarClient:
         """
         now = datetime.datetime.utcnow()
         
+        # Agents should use proper RFC3339 timestamps (e.g. 2023-10-27T10:00:00Z or 2023-10-27T10:00:00-07:00)
+        # If not provided, we default down
         if not time_min:
             t_min = now.isoformat() + 'Z'
         else:
-            t_min = parser.parse(time_min).isoformat()
-            if not t_min.endswith('Z'): t_min += 'Z'
+            t_min = time_min
 
         if not time_max:
              # Default to 7 days ahead
              t_max = (now + datetime.timedelta(days=7)).isoformat() + 'Z'
         else:
-             t_max = parser.parse(time_max).isoformat()
-             if not t_max.endswith('Z'): t_max += 'Z'
+             t_max = time_max
              
         events_result = self.service.events().list(
             calendarId='primary', 
             timeMin=t_min,
             timeMax=t_max,
-            maxResults=max_results, 
+            maxResults=150, # safe upper bound for LLM context window
             singleEvents=True,
             orderBy='startTime'
         ).execute()
         
         return events_result.get('items', [])
 
-    def get_primary_calendar_timezone(self) -> str:
-        """
-        Fetches the timezone of the primary calendar.
-        """
-        try:
-            calendar = self.service.calendars().get(calendarId='primary').execute()
-            return calendar.get('timeZone', 'UTC')
-        except Exception as e:
-            logger.error(f"Error fetching timezone: {e}")
-            return 'UTC'
-
-    def create_event(self, summary: str, start_time: str, duration_mins: int = 60, description: str = "", time_zone: str = "UTC") -> Dict[str, Any]:
+    def create_event(self, summary: str, start_time: str, duration_mins: int = 60, description: str = "") -> Dict[str, Any]:
         """
         Creates a new event.
         start_time: ISO string (e.g. 2023-10-27T10:00:00)
-        time_zone: IANA timezone string (e.g. 'America/Los_Angeles')
+        Timezone is fetched from DB.
         """
+        from database.operations import get_user_timezone
+        
         try:
+            try:
+                time_zone = get_user_timezone(self.telegram_id)
+            except (LookupError, ValueError) as e:
+                logger.warning(f"Timezone not found for user {self.telegram_id}: {e}. Defaulting to UTC.")
+                time_zone = "UTC"
+
             start_dt = parser.parse(start_time)
             end_dt = start_dt + datetime.timedelta(minutes=duration_mins)
             
@@ -154,8 +151,7 @@ class GoogleCalendarClient:
             calendarId='primary',
             q=query,
             singleEvents=True,
-            orderBy='startTime',
-            maxResults=10
+            orderBy='startTime'
         ).execute()
         
         return events_result.get('items', [])

@@ -104,8 +104,8 @@ class SupabaseCheckpointer(BaseCheckpointSaver):
                             "checkpoint_id": row["checkpoint_id"],
                         }
                     },
-                    checkpoint=self.serde.loads(row["checkpoint"]),
-                    metadata=self.serde.loads(row["metadata"]),
+                    checkpoint=self.serde.loads(json.dumps(row["checkpoint"]).encode("utf-8")),
+                    metadata=self.serde.loads(json.dumps(row["metadata"]).encode("utf-8")),
                     parent_config=None # Optimization: don't strictly need parent config for listing
                 )
                 
@@ -128,20 +128,10 @@ class SupabaseCheckpointer(BaseCheckpointSaver):
         parent_id = config["configurable"].get("checkpoint_id") # Previous ID
 
         try:
-            # Serialize content. 
-            # JsonPlusSerializer returns bytes if we just call dumps, 
-            # but we need to pass a JSON-compatible object to Supabase.
-            # Actually, JsonPlusSerializer.dumps returns bytes.
-            # We need to decode it to string if we are storing it in a JSONB column (via Supabase client).
             
             dumped_checkpoint = self.serde.dumps(checkpoint)
             dumped_metadata = self.serde.dumps(metadata)
             
-            # Ensure we send strings, not bytes. 
-            # Ideally we should use self.serde.loads(dumped) if we want to send the raw JSON object,
-            # or just decode utf-8 if we want to send the string representation.
-            # Supabase API usually expects a dict or a string.
-            # Let's try decoding to UTF-8 string.
             if isinstance(dumped_checkpoint, bytes):
                 dumped_checkpoint = dumped_checkpoint.decode("utf-8")
             if isinstance(dumped_metadata, bytes):

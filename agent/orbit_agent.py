@@ -46,14 +46,22 @@ class OrbitAgent:
         # This is a bit verbose but safest for tool binding with instance state.
         
         @tool
-        def get_events(time_min: str = None, time_max: str = None, max_results: int = 10):
-            """Lists events from the calendar."""
-            return self.calendar_client.get_events(time_min, time_max, max_results)
+        def get_events(time_min: str = None, time_max: str = None):
+            """
+            Lists events from the calendar within an optional time range.
+            Important: Ensure time strings are formatted as RFC3339 timestamps (e.g. '2023-10-27T10:00:00-07:00' or '2023-10-27T10:00:00Z').
+            If not provided, defaults to showing events for the next 7 days.
+            """
+            return self.calendar_client.get_events(time_min, time_max)
 
         @tool
-        def create_event(summary: str, start_time: str, duration_mins: int = 60, description: str = "", time_zone: str = "UTC"):
-            """Creates a new event on the calendar."""
-            return self.calendar_client.create_event(summary, start_time, duration_mins, description, time_zone)
+        def create_event(summary: str, start_time: str, duration_mins: int = 60, description: str = ""):
+            """
+            Creates a new event on the calendar.
+            Important: start_time MUST be formatted as an RFC3339 timestamp with timezone offset included (e.g. '2023-10-27T10:00:00-07:00').
+            Check the user's timezone from the system prompt to determine the correct offset if scheduling locally.
+            """
+            return self.calendar_client.create_event(summary, start_time, duration_mins, description)
             
         @tool
         def search_events(query: str):
