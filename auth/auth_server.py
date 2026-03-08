@@ -69,8 +69,7 @@ async def oauth_callback(request: Request):
         encrypted_refresh_token = encrypt_text(credentials.refresh_token)
 
     # Calculate expiry
-    # credentials.expiry is a datetime object usually
-    token_expiry = credentials.expiry if credentials.expiry else datetime.utcnow() + timedelta(hours=1)
+    token_expiry = credentials.expiry
 
     # 4. Update Supabase
     try:
@@ -81,10 +80,6 @@ async def oauth_callback(request: Request):
         
         if encrypted_refresh_token:
             update_data["refresh_token"] = encrypted_refresh_token
-            
-        # We also might want to store email if we can fetch it?
-        # flow.credentials doesn't always have email unless we requested 'email' scope and used 'id_token'.
-        # For Orbit, we are just using Calendar scope.
         
         # Execute Update
         supabase.table("users").update(update_data).eq("telegram_id", telegram_id).execute()

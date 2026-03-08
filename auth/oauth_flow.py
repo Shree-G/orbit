@@ -18,7 +18,7 @@ def get_oauth_flow():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise ValueError("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET")
 
-    # Creating flow from client config dictionary for simplicity (or file if we had client_secret.json)
+    # Creating flow from client config dictionary for simplicity
     client_config = {
         "web": {
             "client_id": GOOGLE_CLIENT_ID,

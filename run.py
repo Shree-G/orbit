@@ -7,7 +7,7 @@ def main():
     
     # 1. Start Auth Server (FastAPI)
     print("   -> Launching Auth Server (Port 8000)...")
-    auth_process = subprocess.Popen([sys.executable, "auth_server.py"])
+    auth_process = subprocess.Popen([sys.executable, "auth/auth_server.py"])
     
     # Wait a moment for server to spin up
     time.sleep(2)
