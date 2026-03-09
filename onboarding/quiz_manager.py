@@ -127,6 +127,9 @@ class QuizManager:
         ## PSYCHOLOGICAL LEVERS
         - [Reasoning/Motivation that works for them]
         
+        ## OBSERVED BEHAVIORS
+        - [Leave blank for now. Will be populated by the agent over time based on actual calendar behavior]
+        
         ## AGENT STRATEGY
         - [Inferences about their style based on the 'anything else' response]
         - [Other strategies for this assistant to help the user the most]

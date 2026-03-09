@@ -80,10 +80,11 @@ class OrbitAgent:
             return self.calendar_client.delete_event(event_id)
 
         @tool
-        def update_profile(fact: str):
+        def update_profile(fact: str, category: Literal["IDENTITY", "NON-NEGOTIABLE BLOCKS", "PSYCHOLOGICAL LEVERS", "OBSERVED BEHAVIORS", "AGENT STRATEGY"]):
             """
-            Saves a permanent fact/preference about the user (e.g. 'Likes green apples', 'Vegetarian').
+            Saves a permanent fact/preference about the user (e.g. 'User needs 8 hours of sleep', 'Do not schedule meetings before 10 AM', 'User is motivated by seeing progress streaks').
             Use this ONLY when the user explicitly asks to remember something or states a clear preference.
+            You MUST specify which category (Markdown Header) this fact belongs to.
             """
             from database.operations import get_user_profile, update_user_document
             import asyncio
@@ -94,20 +95,35 @@ class OrbitAgent:
             for attempt in range(max_retries):
                 try:
                     # 1. Fetch current (to get version)
-                    current_doc, version = get_user_profile(self.telegram_id)
+                    current_doc, version = await asyncio.to_thread(get_user_profile, self.telegram_id)
                     
-                    # 2. Append new fact
-                    new_doc = f"{current_doc}\n- {fact}"
+                    # 2. Append new fact to the correct category
+                    # We will do a basic string replacement to insert the fact under the right header
+                    header = f"## {category}"
+                    if header in current_doc:
+                        # Split the document at the header, insert the fact, and reassemble
+                        parts = current_doc.split(header)
+                        new_doc = f"{parts[0]}{header}\n- {fact}{parts[1]}"
+                    else:
+                        # Return an error to the agent so it knows to try again.
+                        return f"Error: Category '{category}' not found in the user profile document. Cannot save fact."
                     
                     # 3. Update
-                    success = update_user_document(self.telegram_id, new_doc, version, change_reason="Agent Tool Update", old_document=current_doc)
+                    success = await asyncio.to_thread(
+                        update_user_document, 
+                        self.telegram_id, 
+                        new_doc, 
+                        version, 
+                        change_reason=f"Agent Tool Update: {category}", 
+                        old_document=current_doc
+                    )
                     
                     if success:
-                        return "Successfully updated user profile."
+                        return f"Successfully updated user profile under {category}."
                     
                     # If failed (Optimistic Lock), wait and retry
                     logger.warning(f"Update profile failed (conflict), retrying {attempt+1}/{max_retries}...")
-                    time.sleep(0.5) # Short backoff
+                    await asyncio.sleep(0.5) # Use asyncio.sleep properly in async function
                     
                 except Exception as e:
                     logger.error(f"Error updating profile: {e}")
@@ -117,19 +133,20 @@ class OrbitAgent:
 
         return [get_events, create_event, search_events, update_event, delete_event, update_profile]
 
-    def _get_system_message(self):
+    async def _get_system_message(self):
         """
-        Fetches dynamic system message with user profile.
+        Fetches dynamic system message with user profile asynchronously.
         """
         from datetime import datetime, timezone
         from zoneinfo import ZoneInfo
+        import asyncio
         
-        doc, version = get_user_profile(self.telegram_id)
+        doc, version = await asyncio.to_thread(get_user_profile, self.telegram_id)
         
-        # 1. Determine Timezone, default to UTC if not found, but log.
+        # 1. Determine Timezone, default to UTC if not found.
         try:
-            user_timezone = get_user_timezone(self.telegram_id)
-        except (LookupError, ValueError) as e:
+            user_timezone = await asyncio.to_thread(get_user_timezone, self.telegram_id)
+        except (LookupError, ValueError, Exception) as e:
             logger.warning(f"Timezone not found for user {self.telegram_id}: {e}. Defaulting to UTC.")
             user_timezone = "UTC"
         
@@ -157,30 +174,26 @@ class OrbitAgent:
             return "tools"
         return END
 
-    def _call_model(self, state: MessagesState):
+    async def _call_model(self, state: MessagesState):
         """
         Invokes the model.
-        Injects system prompt at the beginning if not present?
-        Actually simpler: Just invoke model with messages.
-        BUT we need the Dynamic System Prompt.
+        Instead of directly mutating the state array (which causes sequence errors in LangGraph), 
+        we pass the dynamic system prompt directly to the model invocation alongside the state messages.
         """
         messages = state["messages"]
         
-        # Fetch fresh system message
-        sys_msg = self._get_system_message()
+        # Fetch fresh system message asynchronously
+        sys_msg = await self._get_system_message()
         
-        # If the first message is NOT system, prepend it.
-        # If it IS system, we might want to replace it to get latest profile?
-        # For simplicity in this graph: Prepend effective prompt to the list passed to model
-        # but don't necessarily mutate the state history unless we want to persist it?
-        # LangGraph state is persistent. Repeatedly adding SystemMessages is bad.
-        # Strategy: Pass it as a separate argument to invoke? 
-        # Or filter out old SystemMessages?
-        
+        # Filter out stray system messages that might have crept into the history
         filtered_messages = [m for m in messages if not isinstance(m, SystemMessage)]
+        
+        # Pass the system message directly to the model ON INVOCATION 
+        # instead of prepending it to the persistent LangGraph state array.
         final_messages = [sys_msg] + filtered_messages
         
-        response = self.model.invoke(final_messages)
+        # We must use ainvoke since _call_model is now async
+        response = await self.model.ainvoke(final_messages)
         return {"messages": [response]}
 
     async def _summarize_conversation(self, state: MessagesState):
@@ -199,9 +212,9 @@ class OrbitAgent:
         # 2. Convert messages to string for LLM
         history_text = "\n".join([f"{m.type}: {m.content}" for m in early_messages])
         
-        # 3. Get Current Profile
+        # 3. Get Current Profile without blocking
         from database.operations import get_user_profile, update_user_document
-        current_profile, version = get_user_profile(self.telegram_id)
+        current_profile, version = await asyncio.to_thread(get_user_profile, self.telegram_id)
         
         # 4. Invoke LLM for Consolidation
         from agent.prompts import MEMORY_CONSOLIDATION_PROMPT
@@ -219,10 +232,17 @@ class OrbitAgent:
         response = await consolidation_model.ainvoke([HumanMessage(content=prompt)])
         new_profile_content = response.content.strip()
         
-        # 5. Update Profile if Needed
+        # 5. Update Profile if Needed without blocking
         if "NO_UPDATE" not in new_profile_content:
             # We Replace the entire profile with the consolidated version
-            update_user_document(self.telegram_id, new_profile_content, version, change_reason="Memory Consolidation (Rewrite)", old_document=current_profile)
+            await asyncio.to_thread(
+                update_user_document, 
+                self.telegram_id, 
+                new_profile_content, 
+                version, 
+                change_reason="Memory Consolidation (Rewrite)", 
+                old_document=current_profile
+            )
             logger.info(f"Consolidated memory for {self.telegram_id}")
             
         # 6. Delete summarized messages
