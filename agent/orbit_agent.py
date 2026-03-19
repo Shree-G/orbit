@@ -80,7 +80,7 @@ class OrbitAgent:
             return self.calendar_client.delete_event(event_id)
 
         @tool
-        def update_profile(fact: str, category: Literal["IDENTITY", "NON-NEGOTIABLE BLOCKS", "PSYCHOLOGICAL LEVERS", "OBSERVED BEHAVIORS", "AGENT STRATEGY"]):
+        async def update_profile(fact: str, category: Literal["IDENTITY", "NON-NEGOTIABLE BLOCKS", "PSYCHOLOGICAL LEVERS", "OBSERVED BEHAVIORS", "AGENT STRATEGY"]):
             """
             Saves a permanent fact/preference about the user (e.g. 'User needs 8 hours of sleep', 'Do not schedule meetings before 10 AM', 'User is motivated by seeing progress streaks').
             Use this ONLY when the user explicitly asks to remember something or states a clear preference.

@@ -71,26 +71,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     telegram_id = user.id
+    username = user.username or "Unknown"
     text = update.message.text
 
-    # 1. Check Quiz Status
+    # 1. Check User & Quiz Status
     try:
         res = supabase.table("users").select("quiz_completed").eq("telegram_id", telegram_id).execute()
-        if not res.data:
-            # Should normally not happen if /start was run, but handle graceful
-             await start(update, context)
-             return
-             
-        quiz_completed = res.data[0]['quiz_completed']
         
+        if not res.data:
+            # New user! Auto-register them instead of forcing /start.
+            data = {
+                "telegram_id": telegram_id,
+                "email": None,
+            }
+            supabase.table("users").insert(data).execute()
+            logger.info(f"Auto-registered new user {telegram_id} ({username})")
+            quiz_completed = False
+        else:
+            quiz_completed = res.data[0]['quiz_completed']
+            
     except Exception as e:
         logger.error(f"Database Error: {e}")
+        await update.message.reply_text("I'm having trouble connecting to my database. Please try again later.")
         return
 
     if not quiz_completed:
         # Route to QuizManager
         response_text = await asyncio.to_thread(QuizManager.handle_response, telegram_id, text)
-        await update.message.reply_text(response_text)
+        await update.message.reply_text(response_text, parse_mode='Markdown')
     else:
         # Route to OrbitAgent
         try:

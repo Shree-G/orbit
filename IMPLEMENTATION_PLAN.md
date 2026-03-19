@@ -54,15 +54,15 @@ Based on the Master Technical PRD (Section 8).
 - [x] Test concurrency handling (Parallel update test)
 
 ## Day 6: Agent Construction
-- [ ] Setup LangGraph `MessageGraph`
-- [ ] Bind all Tools (Calendar + Profile tools)
-- [ ] Connect `PostgresSaver` for persistence
-- [ ] Implement Context Injection (System Prompt with User Profile)
-- [ ] Implement Memory Compression logic (F3)
+- [x] Setup LangGraph `MessageGraph`
+- [x] Bind all Tools (Calendar + Profile tools)
+- [x] Connect `PostgresSaver` for persistence
+- [x] Implement Context Injection (System Prompt with User Profile)
+- [x] Implement Memory Compression logic (F3)
 
 ## Day 7: Proactive Features
-- [ ] Implement `APScheduler` in `main.py` or `jobs/scheduler.py`
-- [ ] Implement `check_upcoming_events` job (15 min interval)
-- [ ] Implement logic to query Google Calendar for upcoming events
-- [ ] Implement logic to filter for keywords
-- [ ] Implement Proactive Messaging via Telegram Bot API
+- [ ] Implement `get_active_oauth_users()` in `database/operations.py` to fetch eligible users.
+- [ ] Implement `run_proactive_scheduler` in `jobs/scheduler.py`.
+- [ ] Implement Google Calendar polling for events starting within `timeMax=now+15m`.
+- [ ] Implement lightweight LLM call to generate a personalized Telegram message using the `user_document` (Psychological Levers).
+- [ ] Hook `run_proactive_scheduler` into `main.py` using `application.job_queue.run_repeating` (Interval: 15 mins).

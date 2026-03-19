@@ -3,6 +3,7 @@ import json
 from typing import Optional, Dict, Any, List
 from database.supabase_client import supabase
 from config.settings import OPENAI_API_KEY
+from auth.oauth_flow import get_authorization_url
 from openai import OpenAI
 
 # Initialize OpenAI client
@@ -96,7 +97,16 @@ class QuizManager:
         else:
             # End of Quiz - Trigger Completion logic
             QuizManager.complete_quiz(telegram_id, responses)
-            return "Thanks! I've set up your profile. You can now use /help to see what I can do."
+            
+            # Generate OAuth link automatically
+            auth_url = get_authorization_url(telegram_id)
+            completion_msg = (
+                "Thanks! I've set up your profile.\n\n"
+                "🔗 *One Last Step: Google Calendar Integration*\n"
+                "To actually manage your time, please click the link below to authorize Orbit to access your calendar.\n\n"
+                f"[Authorize with Google]({auth_url})"
+            )
+            return completion_msg
 
     @staticmethod
     def complete_quiz(telegram_id: int, responses: Dict[str, Any]):
