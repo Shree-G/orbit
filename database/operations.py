@@ -43,14 +43,13 @@ def get_user_timezone(telegram_id: int) -> str:
     Raises LookupError if user not found.
     """
     try:
-        # Note: .maybe_single() is a great Supabase trick for getting 1 or 0 rows
-        response = supabase.table("users").select("timezone").eq("telegram_id", telegram_id).maybe_single().execute()
+        response = supabase.table("users").select("timezone").eq("telegram_id", telegram_id).execute()
         
         # If no row exists at all
         if not response.data:
             raise LookupError(f"User {telegram_id} does not exist in database.")
 
-        timezone = response.data.get("timezone")
+        timezone = response.data[0].get("timezone")
 
         # Explicitly check if the column value is None (NULL in DB)
         if timezone is None:
@@ -111,3 +110,16 @@ def update_user_document(telegram_id: int, new_document: str, expected_version: 
     except Exception as e:
         logger.error(f"Error updating profile for {telegram_id}: {e}")
         raise e
+
+def get_all_authorized_users() -> list[int]:
+    """
+    Returns a list of telegram_ids for users who have linked their Google Calendar
+    (i.e., they have a refresh_token).
+    """
+    try:
+        # Supabase Python client uses 'not_.is_("field", "null")' for IS NOT NULL
+        response = supabase.table("users").select("telegram_id").not_.is_("refresh_token", "null").execute()
+        return [row["telegram_id"] for row in response.data]
+    except Exception as e:
+        logger.error(f"Error fetching authorized users: {e}")
+        return []

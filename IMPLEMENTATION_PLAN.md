@@ -60,9 +60,11 @@ Based on the Master Technical PRD (Section 8).
 - [x] Implement Context Injection (System Prompt with User Profile)
 - [x] Implement Memory Compression logic (F3)
 
-## Day 7: Proactive Features
+## Day 7: Proactive Features & Auditing
 - [ ] Implement `get_active_oauth_users()` in `database/operations.py` to fetch eligible users.
-- [ ] Implement `run_proactive_scheduler` in `jobs/scheduler.py`.
+- [ ] Implement `run_proactive_scheduler()` in `jobs/scheduler.py` (currently stubbed).
 - [ ] Implement Google Calendar polling for events starting within `timeMax=now+15m`.
 - [ ] Implement lightweight LLM call to generate a personalized Telegram message using the `user_document` (Psychological Levers).
 - [ ] Hook `run_proactive_scheduler` into `main.py` using `application.job_queue.run_repeating` (Interval: 15 mins).
+- [ ] Implement `run_retroactive_audit()` in `jobs/scheduler.py` (currently stubbed) to silently observe recent user behavior compared to their planned calendar.
+- [ ] Hook `run_retroactive_audit` into `main.py` as a recurring weekly job.

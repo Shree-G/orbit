@@ -170,20 +170,26 @@ class GoogleCalendarClient:
             event['description'] = kwargs['description']
         
         # Time updates
-        start_dt = None
+        start_v = event['start'].get('dateTime') or event['start'].get('date')
+        end_v = event['end'].get('dateTime') or event['end'].get('date')
+        original_start = parser.parse(start_v)
+        original_end = parser.parse(end_v)
+        original_duration = original_end - original_start
+        
         if 'start_time' in kwargs:
              start_dt = parser.parse(kwargs['start_time'])
              event['start']['dateTime'] = start_dt.isoformat()
+        else:
+             start_dt = original_start
         
-        # If duration is changed, we need start time to calc end
+        # Recalculate end_time
         if 'duration_mins' in kwargs:
-             if not start_dt:
-                 # Parse existing start
-                 start_v = event['start'].get('dateTime') or event['start'].get('date')
-                 start_dt = parser.parse(start_v)
-             
              end_dt = start_dt + datetime.timedelta(minutes=kwargs['duration_mins'])
-             event['end']['dateTime'] = end_dt.isoformat()
+        else:
+             # Slide the event without shrinking it!
+             end_dt = start_dt + original_duration
+             
+        event['end']['dateTime'] = end_dt.isoformat()
              
         updated_event = self.service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
         return updated_event

@@ -7,6 +7,9 @@ from database.supabase_client import supabase
 from onboarding.quiz_manager import QuizManager
 from auth.oauth_flow import get_authorization_url
 from agent.orbit_agent import OrbitAgent
+from jobs.scheduler import run_proactive_scheduler
+
+import sys
 
 # Logging setup
 logging.basicConfig(
@@ -14,6 +17,14 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Initialize OpenTelemetry and Langsmith OTel integration
+from config.observability import setup_observability
+setup_observability()
+
+# IMPORTANT: Fix for psycopg3 connection pooling on Windows. psycopg3 cannot use ProactorEventLoop natively.
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -151,12 +162,25 @@ async def setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error generating OAuth URL: {e}")
         await update.message.reply_text("Error generating authorization link. Please check the logs.")
 
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Sorry, I didn't understand that command.")
+
 if __name__ == '__main__':
     if not TELEGRAM_BOT_TOKEN:
         print("Error: TELEGRAM_BOT_TOKEN is missing.")
         exit(1)
         
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # Graceful Shutdown Hook
+    async def cleanup_resources(app):
+        from database.postgres_checkpointer import close_checkpointer
+        await close_checkpointer()
+        
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_shutdown(cleanup_resources).build()
+    
+    # Initialize Proactive Background Jobs
+    job_queue = application.job_queue
+    # Run every 5 minutes (300 seconds), starting shortly after boot
+    job_queue.run_repeating(run_proactive_scheduler, interval=300, first=10)
     
     start_handler = CommandHandler('start', start)
     setup_handler = CommandHandler('setup', setup)

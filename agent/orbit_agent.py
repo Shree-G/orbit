@@ -11,7 +11,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from config.settings import OPENAI_API_KEY, SUPABASE_DB_URL
 from agent.prompts import ORBIT_SYSTEM_PROMPT
 from database.operations import get_user_profile, update_user_document, get_user_timezone, update_user_timezone
-from database.supabase_checkpointer import SupabaseCheckpointer
 from integrations.google_calendar import GoogleCalendarClient
 
 # Logging
@@ -35,8 +34,8 @@ class OrbitAgent:
             api_key=OPENAI_API_KEY
         ).bind_tools(self.tools)
         
-        # 3. Graph
-        self.graph = self._build_graph()
+        # 3. Workflow
+        self.workflow = self._build_workflow()
 
     def _bind_tools(self):
         """
@@ -71,7 +70,11 @@ class OrbitAgent:
         @tool
         def update_event(event_id: str, summary: str = None, start_time: str = None, duration_mins: int = None, description: str = None):
             """Updates an existing event."""
-            kwargs = {k: v for k, v in locals().items() if k != 'event_id' and v is not None}
+            kwargs = {}
+            if summary is not None: kwargs['summary'] = summary
+            if start_time is not None: kwargs['start_time'] = start_time
+            if duration_mins is not None: kwargs['duration_mins'] = duration_mins
+            if description is not None: kwargs['description'] = description
             return self.calendar_client.update_event(event_id, **kwargs)
 
         @tool
@@ -188,9 +191,24 @@ class OrbitAgent:
         # Filter out stray system messages that might have crept into the history
         filtered_messages = [m for m in messages if not isinstance(m, SystemMessage)]
         
+        # Filter out "Dangling Tool Calls" where an AIMessage has tool_calls but no matching ToolMessage follows it.
+        # This happens if a tool crashes mid-invocation and the user replies again natively.
+        clean_messages = []
+        for i, m in enumerate(filtered_messages):
+            if isinstance(m, AIMessage) and getattr(m, "tool_calls", []):
+                # Check if the next message is a ToolMessage
+                has_tool_response = False
+                if i + 1 < len(filtered_messages) and isinstance(filtered_messages[i+1], ToolMessage):
+                    has_tool_response = True
+                
+                if not has_tool_response:
+                    # Strip the tool calls to prevent OpenAI 400 Bad Request
+                    m = AIMessage(content=m.content or "Tool call aborted due to internal system error.", id=m.id)
+            clean_messages.append(m)
+        
         # Pass the system message directly to the model ON INVOCATION 
         # instead of prepending it to the persistent LangGraph state array.
-        final_messages = [sys_msg] + filtered_messages
+        final_messages = [sys_msg] + clean_messages
         
         # We must use ainvoke since _call_model is now async
         response = await self.model.ainvoke(final_messages)
@@ -271,7 +289,7 @@ class OrbitAgent:
         """
         return {"messages": []}
 
-    def _build_graph(self):
+    def _build_workflow(self):
         workflow = StateGraph(MessagesState)
 
         # Nodes
@@ -308,11 +326,7 @@ class OrbitAgent:
         # Summarize -> End
         workflow.add_edge("summarize", END)
 
-        # Checkpointer using Supabase (Persistent)
-        checkpointer = SupabaseCheckpointer()
-        
-        # Compile
-        return workflow.compile(checkpointer=checkpointer)
+        return workflow
 
     async def run(self, input_text: str):
         """
@@ -325,8 +339,15 @@ class OrbitAgent:
         # Format input
         inputs = {"messages": [HumanMessage(content=input_text)]}
         
+        # Load checkpointer lazily connected to the native pool
+        from database.postgres_checkpointer import get_checkpointer
+        checkpointer = await get_checkpointer()
+        
+        # Compile graph dynamically
+        graph = self.workflow.compile(checkpointer=checkpointer)
+        
         # Async invocation
-        result = await self.graph.ainvoke(inputs, config=config)
+        result = await graph.ainvoke(inputs, config=config)
         
         # Extract last message
         last_msg = result["messages"][-1]
