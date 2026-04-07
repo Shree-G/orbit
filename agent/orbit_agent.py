@@ -30,7 +30,7 @@ class OrbitAgent:
         
         # 2. Model
         self.model = ChatOpenAI(
-            model="gpt-4o-mini", 
+            model="gpt-4o", 
             api_key=OPENAI_API_KEY
         ).bind_tools(self.tools)
         
@@ -48,8 +48,9 @@ class OrbitAgent:
         def get_events(time_min: str = None, time_max: str = None):
             """
             Lists events from the calendar within an optional time range.
-            Important: Ensure time strings are formatted as RFC3339 timestamps (e.g. '2023-10-27T10:00:00-07:00' or '2023-10-27T10:00:00Z').
-            If not provided, defaults to showing events for the next 7 days.
+            Important: Ensure time strings are formatted as RFC3339 timestamps (e.g. '2023-10-27T00:00:00-07:00').
+            CRITICAL: If the user asks for events "today" or "tomorrow" without specifying a time of day, you MUST set time_min to the start of the day (00:00:00) and time_max to the end of the day (23:59:59) to ensure you do not miss early morning or late night events.
+            If neither are provided, defaults to showing events for the next 7 days.
             """
             return self.calendar_client.get_events(time_min, time_max)
 
