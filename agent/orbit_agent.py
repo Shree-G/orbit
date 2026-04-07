@@ -16,8 +16,6 @@ from integrations.google_calendar import GoogleCalendarClient
 # Logging
 logger = logging.getLogger(__name__)
 
-# Postgres Pool removed for now to fix Async Error
-
 
 class OrbitAgent:
     def __init__(self, telegram_id: int):
@@ -42,7 +40,6 @@ class OrbitAgent:
         Wraps client methods as LangChain tools.
         """
         # We define them as standalone functions that call the instance method
-        # This is a bit verbose but safest for tool binding with instance state.
         
         @tool
         def get_events(time_min: str = None, time_max: str = None):
@@ -127,7 +124,7 @@ class OrbitAgent:
                     
                     # If failed (Optimistic Lock), wait and retry
                     logger.warning(f"Update profile failed (conflict), retrying {attempt+1}/{max_retries}...")
-                    await asyncio.sleep(0.5) # Use asyncio.sleep properly in async function
+                    await asyncio.sleep(0.5)
                     
                 except Exception as e:
                     logger.error(f"Error updating profile: {e}")
@@ -147,7 +144,7 @@ class OrbitAgent:
         
         doc, version = await asyncio.to_thread(get_user_profile, self.telegram_id)
         
-        # 1. Determine Timezone, default to UTC if not found.
+        # 1. Determine Timezone
         try:
             user_timezone = await asyncio.to_thread(get_user_timezone, self.telegram_id)
         except (LookupError, ValueError, Exception) as e:
@@ -157,7 +154,6 @@ class OrbitAgent:
         # 2. Format Current Time in User's Timezone
         try:
             tz = ZoneInfo(user_timezone)
-            # utcnow is naive, we want aware UTC then convert
             now_utc = datetime.now(timezone.utc)
             now_local = now_utc.astimezone(tz)
             current_time_str = now_local.strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -208,10 +204,8 @@ class OrbitAgent:
             clean_messages.append(m)
         
         # Pass the system message directly to the model ON INVOCATION 
-        # instead of prepending it to the persistent LangGraph state array.
         final_messages = [sys_msg] + clean_messages
         
-        # We must use ainvoke since _call_model is now async
         response = await self.model.ainvoke(final_messages)
         return {"messages": [response]}
 
@@ -226,7 +220,6 @@ class OrbitAgent:
         # Pruning 30 messages leaves us with ~45, giving a good buffer.
         PRUNE_COUNT = 30
         early_messages = messages[:PRUNE_COUNT]
-        recent_messages = messages[PRUNE_COUNT:]
         
         # 2. Convert messages to string for LLM
         history_text = "\n".join([f"{m.type}: {m.content}" for m in early_messages])
@@ -237,10 +230,6 @@ class OrbitAgent:
         
         # 4. Invoke LLM for Consolidation
         from agent.prompts import MEMORY_CONSOLIDATION_PROMPT
-        
-        # We need a fresh model instance for this (or use self.model without tools)
-        # Using self.model might try to call tools, which we don't want here.
-        # So we create a raw ChatOpenAI instance.
         consolidation_model = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
         
         prompt = MEMORY_CONSOLIDATION_PROMPT.format(

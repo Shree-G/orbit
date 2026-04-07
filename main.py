@@ -45,8 +45,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. Register User (Upsert)
     try:
         data = {
-            "telegram_id": telegram_id,
-            "email": None, # Will be filled later or via Google Auth
+            "telegram_id": telegram_id
         }
         
         res = supabase.table("users").select("quiz_completed").eq("telegram_id", telegram_id).execute()

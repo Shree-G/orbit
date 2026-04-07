@@ -56,8 +56,7 @@ class QuizManager:
         # Check if already exists
         state = QuizManager.get_state(telegram_id)
         if state:
-             # If exists, resume (or restart if user explicitly requested generic logic elsewhere, 
-             # but here we just return current question)
+
              return QUESTIONS[state['current_question']]
         
         # Initialize
@@ -73,19 +72,17 @@ class QuizManager:
 
         current_q_index = state['current_question']
         
-        # If we are done with the main questions (index 7), handle dynamic follow-ups
-        # Logic for simplicity: If 0 <= index < 7, it's a main question.
+        # If we are done with the main questions, handle dynamic follow-ups
+        # Logic for simplicity: If 0 <= index < len(QUESTIONS), it's a main question.
         
         if current_q_index >= len(QUESTIONS):
             return "Profile setup complete! You can using the bot now."
 
         # Save Response
-        # We need to parse the existing responses which might be a string (JSON) or a dict depending on Supabase client return
         responses = state['responses']
         if isinstance(responses, str):
             responses = json.loads(responses)
         
-        # Key the response by the question text or index. Let's use Index for stability.
         responses[str(current_q_index)] = user_text
 
         # Advance State
@@ -161,8 +158,6 @@ class QuizManager:
         # 2. Save to `user_profiles`
         # Using upsert
         try:
-            # Check if user exists in `users` table first? 
-            # Ideally `users` table row is created on /start. We should ensure that in main.py.
             
             data = {
                 "telegram_id": telegram_id,
@@ -173,8 +168,6 @@ class QuizManager:
             
             # 3. Mark quiz_completed in `users`
             supabase.table("users").update({"quiz_completed": True}).eq("telegram_id", telegram_id).execute()
-            
-            # 4. Cleanup quiz session? Optional. We might keep it for now.
              
         except Exception as e:
             logger.error(f"Error saving profile for {telegram_id}: {e}")
