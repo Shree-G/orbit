@@ -26,7 +26,7 @@ Orbit runs as a fully autonomous agent accessible via **Telegram**. You interact
 
 ### Architecture Overview
 
-![Architectural Diagram](Screenshot 2026-04-08 120109.png)
+![Architectural Diagram](arch_diagram.png)
 ---
 
 ## Core Components
